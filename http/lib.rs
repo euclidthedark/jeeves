@@ -1,43 +1,16 @@
 // TODO: make sure naming is correct.
-//use std::io::{BufReader, BufRead, Read};
-use std::net::{TcpListener};
-
-/*struct Request {
-    method: String,
-    host: String,
-    version: String,
-}*/
+// TODO: create a way to prepend paths with pwd
+// TODO: make server multithreaded
+use std::io::{BufRead, BufReader, Write};
+use std::net::TcpListener;
 
 pub struct Jeeves<'a> {
-    connection: Option<&'a TcpListener>,
     routes: Vec<&'a str>,
 }
-
-/**
-        let request: Vec<_> = BufReader::new(socket)
-            .lines()
-            .map(|line| line.unwrap())
-            .take(255)
-            .collect();
-
-        println!("The request is:: {:?}", request);
-
-        let method: Vec<_> = request[0].split(" ").collect();
-
-
-
-        let request = Request {
-            method: method[0].to_string(),
-            host: method[1].to_string(),
-            version: method[2].to_string(),
-        };
-
- */
 
 impl<'a> Jeeves<'a> {
     pub fn new() -> Self {
         Self {
-            connection: None,
             routes: vec!["/"],
         }
     }
@@ -52,18 +25,36 @@ impl<'a> Jeeves<'a> {
 
         self.routes.push(route);
     }
+
+    pub fn listen(&mut self) {
+        let socket = TcpListener::bind("localhost:3000").unwrap();
+
+        for r in socket.incoming() {
+            let mut request = r.unwrap();
+
+            let message: Vec<_> = BufReader::new(&request)
+                .lines()
+                .map(|line| line.unwrap())
+                .take_while(|line| line.is_empty())
+                .collect();
+
+            println!("The message is:: {:?}", message);
+
+            let _ = request.write_all(b"HTTP1.1 200 OK\r\n\r\n");
+        } 
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::net::TcpStream;
 
     #[test]
     fn should_new_up_only_register_home() {
         let jeeves = Jeeves::new();
 
         assert_eq!(jeeves.routes, vec!["/"]);
-        assert!(jeeves.connection.is_none());
     }
 
     #[test]
@@ -80,5 +71,13 @@ mod tests {
         let mut jeeves = Jeeves::new();
 
         jeeves.register_route("blog");
+    }
+
+    fn should_return_ok() {
+        let mut jeeves = Jeeves::new();
+
+        jeeves.register_route("/blog");
+
+        let mut socket = TcpStream::connect("localhost:3000").unwrap();
     }
 }
