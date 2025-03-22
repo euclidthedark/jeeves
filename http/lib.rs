@@ -1,83 +1,77 @@
-// TODO: make sure naming is correct.
-// TODO: create a way to prepend paths with pwd
-// TODO: make server multithreaded
-use std::io::{BufRead, BufReader, Write};
-use std::net::TcpListener;
-
-pub struct Jeeves<'a> {
-    routes: Vec<&'a str>,
+// TOOD: create a test bootstrap for the http server
+use std::{
+    net::TcpListener,
+    io::{Write, BufReader, BufRead},
+    thread::spawn,
 }
 
-impl<'a> Jeeves<'a> {
+struct HttpRequest {
+    header: Vec<String>,
+}
+
+pub struct Http {
+    pool: isize,
+    request: Option<HttpRequest>,
+}
+
+impl Http {
     pub fn new() -> Self {
-        Self {
-            routes: vec!["/"],
+        Http {
+            pool: 0,
+            request: None,
         }
     }
 
-    // TODO: write a regex to do path tests
-    // TODO: support route params
-    pub fn register_route(&mut self, route: &'a str) {
-        // TODO: write test to pattern match routes
-        if route.chars().nth(0).unwrap() != '/' {
-            panic!("you must prepend the route with a slash");
-        }
+    pub fn listen<'a>(&mut self, url: &str) {
+        let socket = TcpListener::bind(url).unwrap();
 
-        self.routes.push(route);
+        for request in socket.incoming() {
+            let mut r = request.unwrap();
+
+            self.pool += 1;
+            // make this come from a config file, handle backpressuring requests
+            if self.pool > 5 { continue; }
+
+            spawn(move || {
+                self.handle();
+            });
+
+            r.write_all(b"From the server").unwrap();
+        }
     }
 
-    pub fn listen(&mut self) {
-        let socket = TcpListener::bind("localhost:3000").unwrap();
-
-        for r in socket.incoming() {
-            let mut request = r.unwrap();
-
-            let message: Vec<_> = BufReader::new(&request)
-                .lines()
-                .map(|line| line.unwrap())
-                .take_while(|line| line.is_empty())
-                .collect();
-
-            println!("The message is:: {:?}", message);
-
-            let _ = request.write_all(b"HTTP1.1 200 OK\r\n\r\n");
-        } 
+    fn handle(&self) {
+        println!("{}", self.pool);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::net::TcpStream;
+    use std::{thread::spawn, net::TcpStream, io::{Write, Read}};
 
-    #[test]
-    fn should_new_up_only_register_home() {
-        let jeeves = Jeeves::new();
+    // move this out in a helper that can be spawned by a thread
+    fn listen(modify_pool: Option<isize>) {
+        let test_pool = if let Some(i) = modify_pool {
+            i
+        } else { 0 };
 
-        assert_eq!(jeeves.routes, vec!["/"]);
+        spawn(move || {
+            let mut http = Http::new();
+            http.pool = test_pool;
+            http.listen("localhost:3000");
+        });
     }
 
     #[test]
-    fn should_append_a_route_when_register_is_called() {
-        let mut jeeves = Jeeves::new();
-        jeeves.register_route("/blog");
-
-        assert_eq!(jeeves.routes, vec!["/", "/blog"]);
-    }
-
-    #[test]
-    #[should_panic(expected="you must prepend the route with a slash")]
-    fn should_panic_when_a_route_is_not_prepended_with_slash() {
-        let mut jeeves = Jeeves::new();
-
-        jeeves.register_route("blog");
-    }
-
-    fn should_return_ok() {
-        let mut jeeves = Jeeves::new();
-
-        jeeves.register_route("/blog");
+    fn should_new_up_with_connection() {
+        listen(None);
 
         let mut socket = TcpStream::connect("localhost:3000").unwrap();
+
+        socket.write_all(b"Hello\n").unwrap();
+        let mut s = String::new();
+        socket.read_to_string(&mut s).unwrap();
+        assert_eq!(s, "From the server");
     }
 }
