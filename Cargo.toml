@@ -2,9 +2,14 @@
 resolver = "2"
 members = [
     "jeeves",
-    "http"
+    "http",
+    "test_server"
 ]
 
 [workspace.package]
 authors = ["euclidthedark"]
 edition = "2021"
+
+[workspace.dependencies]
+http = { path = "./http" }
+jeeves = { path = "./jeeves" }

@@ -1,24 +1,23 @@
 // TOOD: create a test bootstrap for the http server
+// TODO: handle concurrency at some point
+// TODO: handle errors on connections
 use std::{
-    net::TcpListener,
-    io::{Write, BufReader, BufRead},
-    thread::spawn,
+    io::Write,
+    net::{TcpListener, TcpStream},
+};
+
+enum HttpVersion<'a> {
+    V1(&'a str),
 }
 
-struct HttpRequest {
-    header: Vec<String>,
+pub struct HttpPool {
+    pool: usize,
 }
 
-pub struct Http {
-    pool: isize,
-    request: Option<HttpRequest>,
-}
-
-impl Http {
+impl HttpPool {
     pub fn new() -> Self {
-        Http {
+        Self {
             pool: 0,
-            request: None,
         }
     }
 
@@ -26,52 +25,54 @@ impl Http {
         let socket = TcpListener::bind(url).unwrap();
 
         for request in socket.incoming() {
-            let mut r = request.unwrap();
-
             self.pool += 1;
+            let mut r = request.unwrap();
             // make this come from a config file, handle backpressuring requests
-            if self.pool > 5 { continue; }
+            if self.pool > 20 { continue; }
 
-            spawn(move || {
-                self.handle();
-            });
-
-            r.write_all(b"From the server").unwrap();
+            self.handle(&mut r);
+            r.flush().unwrap();
+            println!("Flushed succesfully.");
         }
     }
 
-    fn handle(&self) {
-        println!("{}", self.pool);
+    fn handle(&mut self, socket: &mut TcpStream) {
+        socket.write_all(b"Hello World!\n\n").unwrap();
+        self.pool -= 1;
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{thread::spawn, net::TcpStream, io::{Write, Read}};
+    use std::{
+        io::{BufReader, BufRead, Read, Write}, net::TcpStream, thread::{sleep, spawn}, time::Duration,
+    };
 
-    // move this out in a helper that can be spawned by a thread
-    fn listen(modify_pool: Option<isize>) {
-        let test_pool = if let Some(i) = modify_pool {
-            i
-        } else { 0 };
-
+    // this is very hacky and needs to be fixed
+    fn new_up_server(test_pool: Option<usize>) {
         spawn(move || {
-            let mut http = Http::new();
-            http.pool = test_pool;
+            let mut http = HttpPool::new();
+
+            http.pool = if let Some(n) = test_pool { n }
+            else { 0 };
+
             http.listen("localhost:3000");
         });
+        sleep(Duration::from_millis(100));
     }
 
     #[test]
     fn should_new_up_with_connection() {
-        listen(None);
-
+        new_up_server(None);
         let mut socket = TcpStream::connect("localhost:3000").unwrap();
 
-        socket.write_all(b"Hello\n").unwrap();
-        let mut s = String::new();
-        socket.read_to_string(&mut s).unwrap();
-        assert_eq!(s, "From the server");
+        socket.write_all(b"GET / HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n").unwrap();
+        let response: String = BufReader::new(socket)
+            .lines()
+            .map(|line| line.unwrap())
+            .take_while(|line| !line.is_empty())
+            .collect();
+        assert_eq!(response, "Hello World!");
     }
 }
