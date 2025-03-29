@@ -2,13 +2,11 @@
 // TODO: handle concurrency at some point
 // TODO: handle errors on connections
 use std::{
-    io::Write,
+    fs::File,
+    io::{Write, BufReader, BufRead},
     net::{TcpListener, TcpStream},
+    thread::spawn,
 };
-
-enum HttpVersion<'a> {
-    V1(&'a str),
-}
 
 pub struct HttpPool {
     pool: usize,
@@ -21,28 +19,38 @@ impl HttpPool {
         }
     }
 
-    pub fn listen<'a>(&mut self, url: &str) {
+    // TODO: remove this sillly prod flag injection
+    pub fn listen(&mut self, url: &str, prod: bool) {
         let socket = TcpListener::bind(url).unwrap();
 
-        for request in socket.incoming() {
-            self.pool += 1;
-            let mut r = request.unwrap();
-            // TODO: handle different response types
-            if self.pool > 20 {
-                r.write_all(b"Internal Server Error\n\n").unwrap();
-                r.flush().unwrap();
-                return;
-            }
+        for incoming in socket.incoming() {
+            let mut r = incoming.unwrap();
+            let _request: String = BufReader::new(&r)
+                .lines()
+                .map(|line| line.unwrap())
+                .take_while(|line| !line.is_empty())
+                .collect();
 
-            self.handle(&mut r);
-            println!("Flushed succesfully.");
+            spawn(move || {
+                HttpPool::handle(&mut r, prod);
+            });
         }
     }
 
-    fn handle(&mut self, socket: &mut TcpStream) {
-        socket.write_all(b"Hello World!\n\n").unwrap();
-        socket.flush().unwrap();
-        self.pool -= 1;
+    fn handle(socket: &mut TcpStream, prod: bool) {
+        if !prod {
+            socket.write_all(b"Hello World!\n\n").unwrap();
+        } else {
+            let header = "HTTP/1.0 200 OK\r\n\r\n";
+            let fd = File::open("./test_server/pages/index.html").unwrap();
+            let html: String = BufReader::new(fd)
+                .lines()
+                .map(|line| line.unwrap())
+                .collect();
+
+            socket.write_all(format!("{}{}", header, html).as_bytes()).unwrap();
+            socket.flush().unwrap();
+        }
     }
 }
 
@@ -50,7 +58,7 @@ impl HttpPool {
 mod tests {
     use super::*;
     use std::{
-        io::{BufReader, BufRead, Read, Write},
+        io::{BufReader, BufRead, Write},
         net::TcpStream,
         thread::{sleep, spawn},
         time::Duration,
@@ -65,7 +73,7 @@ mod tests {
             http.pool = if let Some(n) = test_pool { n }
             else { 0 };
 
-            http.listen(&address);
+            http.listen(&address, false);
         });
         sleep(Duration::from_millis(100));
     }
@@ -83,19 +91,4 @@ mod tests {
             .collect();
         assert_eq!(response, "Hello World!");
     }
-
-    #[test]
-    fn should_fail_because_the_pool_is_too_large() {
-        new_up_server("3001", Some(30));
-        let mut socket = TcpStream::connect("localhost:3001").unwrap();
-
-        socket.write_all(b"Hello World!").unwrap();
-        let response: String = BufReader::new(socket)
-            .lines()
-            .map(|line| line.unwrap())
-            .take_while(|line| !line.is_empty())
-            .collect();
-        assert_eq!(response, "Internal Server Error");
-    }
-
 }
