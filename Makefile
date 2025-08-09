@@ -3,6 +3,3 @@ run: build
 
 build:
 	rustc main.rs
-
-bootstrap_server:
-	./target/debug/test_server
