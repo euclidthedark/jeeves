@@ -1,9 +1,11 @@
 use std::collections::VecDeque;
 // TODO: use enum for versioning
-// handle different application types
+// TODO: handle different application types
+// TODO: Clean up struct
 
+#[derive(Debug, Clone)]
 pub struct HttpRequest {
-    version: f32,
+    version: String,
     pub verb: String,
     pub route: String,
     pub header: VecDeque::<VecDeque<String>>,
@@ -37,20 +39,16 @@ impl HttpRequest {
         let mut http_meta = header.pop_front().expect("No Meta to format.");
         let verb_canidate = http_meta.pop_front().expect("No Verb info.");
         let route = http_meta.pop_front().expect("No route info.");
-        let version_canidate = http_meta.pop_front().expect("No version info.");
+        let version = http_meta.pop_front().expect("No version info.");
 
-        HttpRequest {
+        Self {
             header,
             route,
+            version,
             body: request.pop_front(),
             verb: match verb_canidate {
                 val if val == "GET".to_string() => "GET".to_string(),
                 _ => panic!("HTTP Verb not supported."),
-            },
-            version: match version_canidate {
-                val if val == "HTTP/1.0".to_string() => 1.0,
-                val if val == "HTTP/1.1".to_string() => 1.1,
-                _ => panic!("HTTP Version not supported."),
             },
         }
     }
@@ -58,6 +56,7 @@ impl HttpRequest {
 
 #[cfg(test)]
 mod tests {
+    // TODO: write more thourough testing
     use super::*;
 
     #[test]
@@ -66,7 +65,7 @@ mod tests {
 
         let request = HttpRequest::new(request_buf);
 
-        assert_eq!(request.version, 1.0);
+        assert_eq!(request.version, "HTTP/1.0".to_string());
     }
 
     #[test]
